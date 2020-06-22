@@ -1,7 +1,7 @@
 # coding=utf-8
 
 from django.test import TestCase, Client
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.core import mail
 from django.contrib.auth import get_user_model
 from django.conf import settings
