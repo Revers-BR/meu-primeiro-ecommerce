@@ -1,7 +1,12 @@
 # coding=utf-8
 
 from django.shortcuts import get_object_or_404, redirect
-from django.views.generic import RedirectView, TemplateView
+from django.views.generic import (
+    RedirectView, 
+    TemplateView, 
+    ListView, 
+    DetailView
+)
 from django.forms import modelformset_factory
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -10,7 +15,6 @@ from django.urls import reverse
 from catalog.models import Product
 
 from .models import CartItem, Order
-
 
 class CreateCartItemView(RedirectView):
 
@@ -26,7 +30,6 @@ class CreateCartItemView(RedirectView):
         else:
             messages.success(self.request, 'Produto atualizado com sucesso')
         return reverse('checkout:cart_item')
-
 
 class CartItemView(TemplateView):
 
@@ -81,8 +84,48 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
                 request,"Não há itens no carrinho de compras"
             )
             return redirect("checkout:cart_item")
-        return super(CheckoutView, self).get(request, *args, **kwargs)
+        response =  super(CheckoutView, self).get(request, *args, **kwargs)
+        response.context_data["order"] = order
+        return response
 
+class OrderListView(LoginRequiredMixin, ListView):
+
+    template_name = "checkout/order_list.html"
+
+    paginate_by = 10
+
+    def get_queryset(self):
+        return Order.order.filter(user=self.request.user)
+
+class OrderDetailView(LoginRequiredMixin, DetailView):
+    
+    template_name = "checkout/order_detail.html"
+
+    def get_queryset(self):
+        return Order.order.filter(user=self.request.user)
+
+class PagSeguroView(LoginRequiredMixin, RedirectView):
+
+    def get_redirect_url(self, *args, **kwargs):
+        
+        from pudb import set_trace; set_trace()
+        
+        order_pk = self.kwargs.get("pk")
+        order = get_object_or_404(
+            Order.order.filter(
+                user=self.request.user,pk=order_pk
+            )
+        )
+        pg = order.PagSeguro()
+        pg.redirect_url = self.request.build_absolute_uri(
+            reverse("checkout:order_detail",args=[order.pk])
+        )
+        response = pg.checkout()
+        return response.payment_url
+
+pagseguro_view = PagSeguroView.as_view()
 create_cartitem = CreateCartItemView.as_view()
 cart_item = CartItemView.as_view()
 checkout = CheckoutView.as_view()
+order_list = OrderListView.as_view()
+order_detail = OrderDetailView.as_view()

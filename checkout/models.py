@@ -2,6 +2,8 @@
 
 from django.db import models
 from django.conf import settings
+from catalog.models import Product
+from pagseguro import PagSeguro
 
 class CartItemManager(models.Manager):
 
@@ -17,7 +19,6 @@ class CartItemManager(models.Manager):
                 cart_key=cart_key, product=product, price=product.price
             )
         return cart_item, created
-
 
 class CartItem(models.Model):
 
@@ -58,7 +59,7 @@ class Order(models.Model):
     STATUS_CHOICES = (
         (0,"Aguardando Pagamento"),
         (1,"Concluida"),
-        (0,"Cancelada"),
+        (2,"Cancelada"),
     )
 
     PAYMENT_OPTION_CHOICES = (
@@ -90,6 +91,52 @@ class Order(models.Model):
 
     def __str__(self):
         return "Pedido #{}".format(self.pk)
+
+    def products(self):
+
+        products_ids = self.Items.values_list("product")
+        return Product.objects.filter(pk__in=products_ids)
+
+    def total(self):
+
+        aggregate_queryset = self.Items.aggregate(
+            total=models.Sum(
+                models.F("price") * models.F("quantity"),
+                output_field=models.DecimalField()
+            )
+        )
+
+        return aggregate_queryset["total"]
+
+    def PagSeguro(self):
+
+        pg = PagSeguro(
+            email=settings.PAGSEGURO_EMAIL,
+            token=settings.PAGSEGURO_TOKEN,
+            config={
+                "sandbox":settings.PAGSEGURO_SANDBOX
+            }
+        )
+
+        pg.sender = {
+            "email":self.user.email
+        }
+        pg.reference_prefix = None
+        pg.shipping = None
+        pg.reference = self.pk
+
+        for item in self.Items.all():
+            pg.items.append(
+                {
+                    "id":item.product.pk,
+                    "description":item.product.name,
+                    "quantity":item.quantity,
+                    "amount":"%.2f" % item.price
+                }
+            )
+
+        return pg
+
 
 class OrderItem(models.Model):
 

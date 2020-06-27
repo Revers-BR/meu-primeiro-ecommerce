@@ -167,6 +167,12 @@ MESSAGE_TAGS = {
     messages_constants.ERROR: 'danger',
 }
 
+# PAGSEGURO
+
+PAGSEGURO_TOKEN = "9A84D68459C74210A11E05DE8F8F1F45"
+PAGSEGURO_EMAIL = "reversrivair@gmail.com"
+PAGSEGURO_SANDBOX = True
+
 try:
     from .local_settings import *
 except ImportError:
