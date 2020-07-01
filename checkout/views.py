@@ -7,13 +7,20 @@ from django.views.generic import (
     ListView, 
     DetailView
 )
+from paypal.standard.forms import PayPalPaymentsForm
+from paypal.standard.models import ST_PP_COMPLETED
+from paypal.standard.ipn.signals import valid_ipn_received
+
 from django.forms import modelformset_factory
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
+from pagseguro import PagSeguro
+from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
 
 from catalog.models import Product
-
+from django.http import HttpResponse
 from .models import CartItem, Order
 
 class CreateCartItemView(RedirectView):
@@ -79,6 +86,7 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
             order = Order.order.create_order(
                 user=request.user,cart_items=cart_items
             )
+            cart_items.delete()
         else:
             messages.info(
                 request,"Não há itens no carrinho de compras"
@@ -107,9 +115,7 @@ class OrderDetailView(LoginRequiredMixin, DetailView):
 class PagSeguroView(LoginRequiredMixin, RedirectView):
 
     def get_redirect_url(self, *args, **kwargs):
-        
-        from pudb import set_trace; set_trace()
-        
+         
         order_pk = self.kwargs.get("pk")
         order = get_object_or_404(
             Order.order.filter(
@@ -120,9 +126,74 @@ class PagSeguroView(LoginRequiredMixin, RedirectView):
         pg.redirect_url = self.request.build_absolute_uri(
             reverse("checkout:order_detail",args=[order.pk])
         )
+        pg.notification_url = self.request.build_absolute_uri(
+            reverse("checkout:pagseguro_notification")
+        )
         response = pg.checkout()
         return response.payment_url
 
+class PayPalView(LoginRequiredMixin, TemplateView):
+    
+    template_name = "checkout/paypal.html"
+
+    def get_context_data(self, **kwargs):
+        context = super(PayPalView, self).get_context_data(**kwargs)
+        order_pk = self.kwargs.get("pk")
+        order = get_object_or_404(
+            Order.order.filter(user=self.request.user, pk=order_pk)
+        )
+
+        paypal_dict = order.paypal()
+        paypal_dict["return_url"] = self.request.build_absolute_uri(
+            reverse("checkout:order_list")
+        )
+        paypal_dict["cancel_return"] = self.request.build_absolute_uri(
+            reverse("checkout:order_list")
+        )
+        paypal_dict["notify_url"] = self.request.build_absolute_uri(
+            reverse("paypal-ipn")
+        )
+        context["form"] = PayPalPaymentsForm(initial=paypal_dict)
+        return context
+
+@csrf_exempt
+def pagseguro_notification(self,request):
+    notification_code = request.POST.get("notificationCode",None)
+    if notification_code:
+        pg = PagSeguro(
+
+            email=settings.PAGSEGURO_EMAIL,
+            token=settings.PAGSEGURO_TOKEN,
+            config={
+                "sandbox":settings.PAGSEGURO_SANDBOX
+            }
+
+        )
+        notification_data = pg.check_notificatiob(notification_code)
+        status = notification_data.status
+        reference = notification_data.reference
+
+        try:
+            order = Order.order.get(pk=reference)
+        except Order.DoesNotExist:
+            pass
+        else:
+            order.pagseguro_update_status(status)
+    return HttpResponse("ok")
+
+def paypal_notification(self, sender, **kwargs):
+
+    ipn_obj = sender
+    if ipn_obj.payment_status == ST_PP_COMPLETED and \
+            ipn_obj.receiver_email == settings.PAYPAL_EMAIL:
+        try:
+            order = Order.order.get(pk=ipn_obj.invoice)
+            order.complete()
+        except Order.DoesNotExist:
+            pass
+
+valid_ipn_received.connect(paypal_notification)
+paypal_view = PayPalView.as_view()
 pagseguro_view = PagSeguroView.as_view()
 create_cartitem = CreateCartItemView.as_view()
 cart_item = CartItemView.as_view()

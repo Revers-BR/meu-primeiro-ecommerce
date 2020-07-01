@@ -18,4 +18,9 @@ urlpatterns = [
         views.pagseguro_view, 
         name='pagseguro_view'
         ),
+    url(r'^finalizando/(?P<pk>\d+)/paypal/$', 
+        views.paypal_view, 
+        name='paypal_view'
+        ),
+    url(r'^notificacoes/pagseguro/$', views.pagseguro_notification, name='pagseguro_notification'),
 ]
